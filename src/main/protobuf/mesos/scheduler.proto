@@ -205,7 +205,7 @@ message Call {
     // already subscribed frameworks as a way of stopping offers from
     // being generated and other events from being sent by the master.
     // Note that this functionality existed originally to support
-    // SchedulerDriver::abort which was only necessary to handle
+    // mesos.SchedulerDriver::abort which was only necessary to handle
     // exceptions getting thrown from within Scheduler callbacks,
     // something that is not an issue with the Event/Call API.
   }

@@ -6,7 +6,8 @@ import com.twitter.concurrent.AsyncStream
 import com.twitter.finagle.Http
 import com.twitter.finagle.http.{Request, Response, Status}
 import com.twitter.io.{Buf, Reader}
-import com.twitter.util.{Await, Future, FuturePool}
+import com.twitter.util._
+import mesos.{Driver, MesosEventHandler}
 import org.apache.mesos.v1.mesos._
 import org.apache.mesos.v1.scheduler.scheduler.Call.Type._
 import org.apache.mesos.v1.scheduler.scheduler.{Call, Event}
@@ -18,71 +19,33 @@ import org.apache.mesos.v1.scheduler.scheduler.Call.{Accept, Acknowledge, Declin
 
 trait StreamingClient extends Client {
   def register(eventHandler: MesosEventHandler)
+
   def register(eventHandler: Seq[MesosEventHandler])
+
   def subscribe(frameworkInfo: FrameworkInfo): Unit
 }
 
 case class MesosStreamSubscription(mesosStreamId: String)
 
-class SchedulerStreamingClient(val master: MasterInfo)
-  extends Client {
+class SchedulerStreamingClient(val master: MasterInfo) extends Client {
   private val host = master.address.get.hostname.get + ":" + master.address.get.port
   private val streamClient = Http.client.withStreaming(enabled = true).newService(host)
 
   private val callClient = Http.client.newService(host)
-  private var eventHandlers: List[MesosEventHandler] = Nil
-
-  private var mesosStreamId: Option[MesosStreamSubscription] = None
+  private val mesosStreamIdHeader = "Mesos-Stream-Id"
 
   val eventCallbackExecutor = Executors.newSingleThreadExecutor()
 
-  def accept(frameworkID: FrameworkID, accept: Accept) = {
-    call(Call(`type` = Some(TEARDOWN), frameworkId = Some(frameworkID), accept = Some(accept)))
-  }
+  private var eventHandlers: List[MesosEventHandler] = Nil
+  private var mesosStreamSubscrption: Option[MesosStreamSubscription] = None
+  private var mesosDriver: Option[Driver] = None
 
-  def teardown(frameworkID: FrameworkID) = {
-    call(Call(`type` = Some(TEARDOWN), frameworkId = Some(frameworkID)))
-  }
 
-  def decline(frameworkID: FrameworkID, offerIds: Seq[OfferID], filters: Option[Filters]): Unit = {
-    call(Call(`type` = Some(DECLINE), frameworkId = Some(frameworkID),
-      decline = Some(Decline(offerIds, filters))))
-  }
-
-  def revive(frameworkID: FrameworkID) = {
-    call(Call(`type` = Some(REVIVE), frameworkId = Some(frameworkID)))
-  }
-
-  def kill(frameworkID: FrameworkID, kill: Kill) = {
-    call(Call(`type` = Some(KILL), frameworkId = Some(frameworkID), kill = Some(kill)))
-  }
-
-  def shutdown(frameworkID: FrameworkID, shutdown: Call.Shutdown): Unit = {
-    call(Call(`type` = Some(Call.Type.SHUTDOWN),
-      frameworkId = Some(frameworkID), shutdown = Some(shutdown)))
-  }
-
-  def acknowledge(frameworkID: FrameworkID, acknowledge: Acknowledge): Unit = {
-    call(Call(`type` = Some(ACKNOWLEDGE), frameworkId = Some(frameworkID), acknowledge = Some(acknowledge)))
-  }
-
-  def reconcile(frameworkID: FrameworkID, reconcile: Reconcile): Unit = {
-    call(Call(`type` = Some(RECONCILE), frameworkId = Some(frameworkID),
-      reconcile = Some(reconcile)))
-  }
-
-  def message(frameworkID: FrameworkID, message: Message): Unit = {
-    call(Call(`type` = Some(MESSAGE), frameworkId = Some(frameworkID),
-      message = Some(message)))
-  }
-
-  def request(frameworkID: FrameworkID, requests: Call.Request): Unit = {
-    call(Call(`type` = Some(REQUEST), frameworkId = Some(frameworkID),
-      request = Some(requests)))
-  }
-
-  def subscribe(frameworkInfo: FrameworkInfo, eventHandler: MesosEventHandler): Future[Option[MesosStreamSubscription]] = {
+  def subscribe(frameworkInfo: FrameworkInfo,
+                eventHandler: MesosEventHandler, driver: Driver): Future[Option[MesosStreamSubscription]] = {
     register(eventHandler)
+    mesosDriver = Some(driver)
+
     val subscription = Subscribe(frameworkInfo)
     val callRequest: Call = Call(`type` = Some(SUBSCRIBE),
       subscribe = Some(subscription))
@@ -90,77 +53,131 @@ class SchedulerStreamingClient(val master: MasterInfo)
     val request = SchedulerCallRequest(Buf.ByteArray(callRequest.toByteArray: _*),
       host)
 
-    FuturePool.interruptible(eventCallbackExecutor) {
+    val streamSubscription = FuturePool.interruptible(eventCallbackExecutor) {
       doRequest(request)
     }.flatten
+
+    streamSubscription.onSuccess { sub =>
+      mesosStreamSubscrption = sub
+    }
   }
 
-  def register(eventHandler: MesosEventHandler): Unit = {
+  private def register(eventHandler: MesosEventHandler): Unit = {
     eventHandlers = eventHandlers.::(eventHandler)
   }
 
   def shutdownClient(): Unit = {
+    callClient.close()
+    streamClient.close()
     eventCallbackExecutor.shutdown()
   }
 
-  private def call(call: Call): Future[Response] = {
+  def call(call: Call): Future[Response] = {
     val request = SchedulerCallRequest(Buf.ByteArray(call.toByteArray: _*), host)
-    mesosStreamId.foreach(s => request.headerMap.add("Mesos-Stream-Id", s.mesosStreamId))
+    mesosStreamSubscrption.foreach(s => request.headerMap.add(mesosStreamIdHeader, s.mesosStreamId))
     callClient(request)
   }
 
   private def doRequest(request: Request): Future[Option[MesosStreamSubscription]] = {
     streamClient(request).map {
-      case response if response.status != Status.Ok =>  {
+      case response if response.status != Status.Ok => {
         streamClient.close()
         None
       }
       case response => {
         handleResponse(response)
-        val streamId = response.headerMap.get("Mesos-Stream-Id")
+        val streamId = response.headerMap.get(mesosStreamIdHeader)
         streamId.map(MesosStreamSubscription)
       }
     }
   }
 
   private def handleResponse(response: Response) = {
-    fromReader(response.reader).foreach {
-      case buf => {
+    fromReader(response.reader).foreach { buf =>
+      val result = handleSafely {
         val byteBuf = Buf.ByteBuffer.Owned.extract(buf)
         val array = removeLF(byteBuf.array())
         // add exception handling here
         val event = Event.parseFrom(array)
-
-        event.`type` match {
-          case Some(Event.Type.SUBSCRIBED) => {
-            println("Got stream Id")
-            val id = response.headerMap.get("Mesos-Stream-Id").map(MesosStreamSubscription)
-            if(id.isEmpty) {
-
-            } else {
-              mesosStreamId = id
-            }
-          }
-        }
         handleEvent(event)
       }
-      case _ => {
-        streamClient.close()
+      if(result.isThrow) {
+        println(result.throwable)
       }
     }
   }
 
-  private def handleEvent(event: Event): Unit = eventHandlers.foreach(_.handleEvent(event))
+  private def handleSafely[T](f: => T): Try[T] = Try(f)
+
+  private def handleEvent(event: Event): Unit = {
+    if(mesosDriver.isEmpty) {
+      println("Mesos Driver not initiazled. Cannot send events to callback")
+    } else {
+      event.`type` match {
+        case Some(Event.Type.SUBSCRIBED) => {
+          eventHandlers.foreach { handler =>
+            handler.subscribed(mesosDriver.get, event.subscribed.get)
+          }
+        }
+        case Some(Event.Type.OFFERS) =>  {
+          eventHandlers.foreach { handler =>
+            handler.resourceOffers(mesosDriver.get, event.offers.get)
+          }
+        }
+        case Some(Event.Type.RESCIND) => {
+          eventHandlers.foreach { handler =>
+            handler.rescind(mesosDriver.get, event.rescind.get.offerId)
+          }
+        }
+        case Some(Event.Type.UPDATE) => {
+          eventHandlers.foreach { handler =>
+            handler.update(mesosDriver.get, event.update.get.status)
+          }
+        }
+        case Some(Event.Type.MESSAGE) => {
+          eventHandlers.foreach { handler =>
+            handler.message(mesosDriver.get, event.message.get)
+          }
+        }
+        case Some(Event.Type.FAILURE) => {
+          eventHandlers.foreach { handler =>
+            handler.failure(mesosDriver.get, event.failure.get)
+          }
+        }
+        case Some(Event.Type.ERROR) => {
+          eventHandlers.foreach { handler =>
+            handler.error(mesosDriver.get, event.error.get.message)
+          }
+        }
+        case Some(Event.Type.HEARTBEAT) => {
+          eventHandlers.foreach { handler =>
+            handler.heartbeat(mesosDriver.get)
+          }
+        }
+        case Some(Event.Type.UNKNOWN) => {
+          println("Received unknown type not known to mesos ! ")
+        }
+        case Some(Event.Type.INVERSE_OFFERS) => ???
+
+        case Some(Event.Type.RESCIND_INVERSE_OFFER) => ???
+        case Some(_) => println("Unknown event type")
+        case None => println("Event type not specified")
+      }
+    }
+
+  }
 
 
-  private def removeLF(bytes: Array[Byte]): Array[Byte] =  {
+
+
+  private def removeLF(bytes: Array[Byte]): Array[Byte] = {
     bytes.dropWhile(_ != 10.toByte).tail
   }
 
   private def readLength(reader: Reader): Future[Buf] = {
     reader.read(1).flatMap {
       case Some(buf) => {
-        if(buf.equals(Buf.ByteArray(10.toByte))) {
+        if (buf.equals(Buf.ByteArray(10.toByte))) {
           Future(Buf.Empty)
         } else {
           readLength(reader).flatMap { next =>

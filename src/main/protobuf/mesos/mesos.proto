@@ -1384,7 +1384,7 @@ message InverseOffer {
 
 /**
  * Describes a task. Passed from the scheduler all the way to an
- * executor (see SchedulerDriver::launchTasks and
+ * executor (see mesos.SchedulerDriver::launchTasks and
  * Executor::launchTask). Either ExecutorInfo or CommandInfo should be set.
  * A different executor can be used to launch this task, and subsequent tasks
  * meant for the same executor can reuse the same ExecutorInfo struct.
@@ -1655,13 +1655,13 @@ message TaskStatus {
 
 /**
  * Describes possible filters that can be applied to unused resources
- * (see SchedulerDriver::launchTasks) to influence the allocator.
+ * (see mesos.SchedulerDriver::launchTasks) to influence the allocator.
  */
 message Filters {
   // Time to consider unused resources refused. Note that all unused
   // resources will be considered refused and use the default value
   // (below) regardless of whether Filters was passed to
-  // SchedulerDriver::launchTasks. You MUST pass Filters with this
+  // mesos.SchedulerDriver::launchTasks. You MUST pass Filters with this
   // field set to change this behavior (i.e., get another offer which
   // includes unused resources sooner or later than the default).
   optional double refuse_seconds = 1 [default = 5.0];
@@ -1867,7 +1867,7 @@ message Volume {
     }
 
     message DockerVolume {
-      // Driver of the volume, it can be flocker, convoy, raxrey etc.
+      // mesos.Driver of the volume, it can be flocker, convoy, raxrey etc.
       optional string driver = 1;
 
       // Name of the volume.
