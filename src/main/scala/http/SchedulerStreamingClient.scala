@@ -1,7 +1,6 @@
 package http
 
 import java.util.concurrent.Executors
-
 import com.twitter.concurrent.AsyncStream
 import com.twitter.finagle.Http
 import com.twitter.finagle.http.{Request, Response, Status}
@@ -11,7 +10,7 @@ import mesos.{Driver, MesosEventHandler}
 import org.apache.mesos.v1.mesos._
 import org.apache.mesos.v1.scheduler.scheduler.Call.Type._
 import org.apache.mesos.v1.scheduler.scheduler.{Call, Event}
-import org.apache.mesos.v1.scheduler.scheduler.Call.{Accept, Acknowledge, Decline, Kill, Message, Reconcile, Subscribe}
+import org.apache.mesos.v1.scheduler.scheduler.Call.Subscribe
 
 /**
   * Created by karthik on 11/24/16.
@@ -94,7 +93,7 @@ class SchedulerStreamingClient(val master: MasterInfo) extends Client {
 
   private def handleResponse(response: Response) = {
     fromReader(response.reader).foreach { buf =>
-      val result = handleSafely {
+      val result = Try {
         val byteBuf = Buf.ByteBuffer.Owned.extract(buf)
         val array = removeLF(byteBuf.array())
         // add exception handling here
@@ -106,8 +105,6 @@ class SchedulerStreamingClient(val master: MasterInfo) extends Client {
       }
     }
   }
-
-  private def handleSafely[T](f: => T): Try[T] = Try(f)
 
   private def handleEvent(event: Event): Unit = {
     if(mesosDriver.isEmpty) {
@@ -157,17 +154,13 @@ class SchedulerStreamingClient(val master: MasterInfo) extends Client {
         case Some(Event.Type.UNKNOWN) => {
           println("Received unknown type not known to mesos ! ")
         }
-        case Some(Event.Type.INVERSE_OFFERS) => ???
 
-        case Some(Event.Type.RESCIND_INVERSE_OFFER) => ???
         case Some(_) => println("Unknown event type")
         case None => println("Event type not specified")
       }
     }
 
   }
-
-
 
 
   private def removeLF(bytes: Array[Byte]): Array[Byte] = {

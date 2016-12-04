@@ -1,13 +1,14 @@
 /**
   * Created by karthik on 11/15/16.
   */
-import com.twitter.finagle.client
+import com.google.common.util.concurrent.ServiceManager
+import com.twitter.finatra.http.HttpServer
+import com.twitter.finatra.http.filters.CommonFilters
+import com.twitter.finatra.http.routing.HttpRouter
+import com.twitter.inject.annotations.Lifecycle
 import http.SchedulerStreamingClient
 import mesos.{PrintingEventHandler, SchedulerDriver}
 import org.apache.mesos.v1.mesos.{Address, FrameworkInfo, MasterInfo}
-import org.apache.mesos.v1.scheduler.scheduler.{Call, Event}
-import org.apache.mesos.v1.scheduler.scheduler.Event.Type.{ERROR, FAILURE, HEARTBEAT, MESSAGE, OFFERS, RESCIND, SUBSCRIBED, UPDATE}
-
 /**
   * This client connects to a Streaming HTTP service, prints 1000 messages, then
   * disconnects.  If you start two or more of these clients simultaneously, you
@@ -29,6 +30,9 @@ object HttpStreamingClient {
     driver.teardown(eventHandler.frameworkId.get)
     Thread.sleep(5000)
 
-    driver.exit()
+    driver.exit
+    
   }
 }
+
+

@@ -1,9 +1,7 @@
 package mesos
 
-import com.twitter.finagle.http.Response
-import com.twitter.io.Buf
 import com.twitter.util.Future
-import http.{MesosStreamSubscription, SchedulerCallRequest, SchedulerStreamingClient}
+import http.{MesosStreamSubscription, SchedulerStreamingClient}
 import org.apache.mesos.v1.mesos._
 import org.apache.mesos.v1.scheduler.scheduler.Call
 import org.apache.mesos.v1.scheduler.scheduler.Call.Type.{ACKNOWLEDGE, DECLINE, KILL, MESSAGE, RECONCILE, REQUEST, REVIVE, TEARDOWN}
@@ -75,7 +73,7 @@ class SchedulerDriver(eventHandler: MesosEventHandler,
       request = Some(requests)))
   }
 
-  def exit() = {
+  def exit = {
     schedulerStreamingClient.shutdownClient()
   }
 }
