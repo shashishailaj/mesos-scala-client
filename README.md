@@ -1,4 +1,1 @@
-# mesos-scala-client
-mesos scala client based on the http api
-
-WIP
+# Mesos HTTP Client ![Circle CI](https://circleci.com/gh/treadstone90/mesos-scala-client.png?circle-token=:circle-token)
