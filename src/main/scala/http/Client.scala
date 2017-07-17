@@ -1,23 +1,23 @@
 package http
 
 
-import com.twitter.finagle.Http
-import com.twitter.finagle.http.{Method, Request, Response}
+import com.google.common.net.HostAndPort
+import com.twitter.finagle.http.{Method, Request}
 import com.twitter.io.Buf
-import com.twitter.util.Future
-import org.apache.mesos.v1.mesos.MasterInfo
-import org.apache.mesos.v1.scheduler.scheduler.Call
 
 /**
   * Created by karthik on 11/24/16.
   */
 
 trait Client {
-  def master: MasterInfo
+  def hostAndPort: HostAndPort
+  def hostName: String
+  def port: Int
 }
 
-object SchedulerCallRequest {
-  val uri = "/api/v1/scheduler"
+
+trait MesosCallRequest {
+  def uri: String
 
   def apply(content: Buf, host: String): Request = {
     val request = Request(Method.Post, "/api/v1/scheduler")
@@ -29,6 +29,13 @@ object SchedulerCallRequest {
     request.content_=(content)
     request
   }
+}
 
+object SchedulerCallRequest extends MesosCallRequest {
+  val uri = "/api/v1/scheduler"
+}
+
+object ExecutorCallRequest extends MesosCallRequest {
+  val uri = "/api/v1/executor"
 }
 
