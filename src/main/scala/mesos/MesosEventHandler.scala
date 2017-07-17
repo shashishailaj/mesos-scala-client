@@ -1,8 +1,6 @@
 package mesos
 
-import fastparse.core.Frame
-import org.apache.mesos.v1.mesos.{FrameworkID, OfferID, Status, TaskStatus}
-import org.apache.mesos.v1.scheduler.scheduler.{Call, Event}
+import org.apache.mesos.v1.mesos.{FrameworkID, OfferID, TaskStatus}
 import org.apache.mesos.v1.scheduler.scheduler.Event.{Failure, Message, Offers, Subscribed}
 
 /**
@@ -29,7 +27,9 @@ trait MesosEventHandler {
   def heartbeat(schedulerDriver: Driver)
 }
 
-class PrintingEventHandler extends MesosEventHandler {
+trait Scheduler extends MesosEventHandler
+
+class PrintingEventHandler extends Scheduler {
   var frameworkId: Option[FrameworkID] = None
 
   def subscribed(schedulerDriver: Driver, subscribed: Subscribed) = {
@@ -49,7 +49,10 @@ class PrintingEventHandler extends MesosEventHandler {
 
   def error(schedulerDriver: Driver, message: String): Unit = println(s"error $message")
 
-  def resourceOffers(schedulerDriver: Driver, offers: Offers): Unit = print(offers)
+  def resourceOffers(schedulerDriver: Driver, offers: Offers): Unit = {
+    print(offers)
+    schedulerDriver.declineOffer(offers.offers.map(_.id), None)
+  }
 
   def message(schedulerDriver: Driver, message: Message): Unit = println(message)
 

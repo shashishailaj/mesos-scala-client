@@ -37,4 +37,10 @@ libraryDependencies +=  "com.twitter" %% "finatra-thrift" % "2.6.0" % "test" cla
 // https://mvnrepository.com/artifact/ch.qos.logback/logback-classic
 libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.1.7"
 
+// https://mvnrepository.com/artifact/org.apache.curator/curator-framework
+libraryDependencies += "org.apache.curator" % "curator-framework" % "3.3.0"
+
+libraryDependencies += "org.apache.curator" % "curator-recipes" % "3.3.0"
+
+
 

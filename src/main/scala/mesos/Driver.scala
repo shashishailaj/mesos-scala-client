@@ -1,6 +1,6 @@
 package mesos
 
-import org.apache.mesos.v1.mesos.{Filters, FrameworkID, OfferID}
+import org.apache.mesos.v1.mesos.{Filters, OfferID, TaskInfo}
 import org.apache.mesos.v1.scheduler.scheduler.Call
 import org.apache.mesos.v1.scheduler.scheduler.Call.{Accept, Acknowledge, Kill, Message, Reconcile}
 
@@ -8,23 +8,33 @@ import org.apache.mesos.v1.scheduler.scheduler.Call.{Accept, Acknowledge, Kill, 
   * Created by karthik on 11/30/16.
   */
 trait Driver {
-  def teardown(frameworkID: FrameworkID)
+  def abort(): Unit
 
-  def accept(frameworkID: FrameworkID, accept: Accept)
+  def acceptOffers(accept: Accept): Unit
 
-  def decline(frameworkID: FrameworkID, offerIds: Seq[OfferID], filters: Option[Filters])
+  def acknowledgeStatusUpdate(acknowledge: Acknowledge): Unit
 
-  def revive(frameworkID: FrameworkID)
+  def declineOffer(offerIds: Seq[OfferID], filters: Option[Filters]): Unit
 
-  def kill(frameworkID: FrameworkID, kill: Kill)
+  def killTask(kill: Kill): Unit
 
-  def shutdown(frameworkID: FrameworkID, shutdown: Call.Shutdown)
+  def shutdown(shutdown: Call.Shutdown): Unit
 
-  def acknowledge(frameworkID: FrameworkID, acknowledge: Acknowledge)
+  def launchTasks(offerIds: Seq[OfferID], tasks: Seq[TaskInfo]): Unit
 
-  def reconcile(frameworkID: FrameworkID, reconcile: Reconcile)
+  def launchTasks(offerIds: Seq[OfferID], tasks: Seq[TaskInfo], filters: Filters): Unit
 
-  def message(frameworkID: FrameworkID, message: Message)
+  def reconcileTasks(reconcile: Reconcile): Unit
 
-  def request(frameworkID: FrameworkID, requests: Call.Request)
+  def requestResources(requests: Call.Request): Unit
+
+  def reviveOffers(): Unit
+
+  def run(): Unit
+
+  def sendFrameworkMessage(message: Message): Unit
+
+  def stop(failover: Boolean): Unit
+
+  def suppressOffers(): Unit
 }

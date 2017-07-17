@@ -14,6 +14,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+syntax = "proto2";
+
+package mesos.v1;
+
 option java_package = "org.apache.mesos.v1";
 option java_outer_classname = "Protos";
 
@@ -92,12 +96,19 @@ message ContainerID {
 
 
 /**
+ * A unique ID assigned to a resource provider. Currently, a resource
+ * provider gets a new ID whenever it (re)registers with Mesos.
+ */
+message ResourceProviderID {
+  required string value = 1;
+}
+
+
+/**
  * Represents time since the epoch, in nanoseconds.
  */
 message TimeInfo {
   required int64 nanoseconds = 1;
-
-  // TODO(josephw): Add time zone information, if necessary.
 }
 
 
@@ -243,9 +254,16 @@ message FrameworkInfo {
   // the cost of a (usually small) increase in disk I/O.
   optional bool checkpoint = 5 [default = false];
 
-  // Used to group frameworks for allocation decisions, depending on
-  // the allocation policy being used.
-  optional string role = 6 [default = "*"];
+  // Roles are the entities to which allocations are made.
+  // The framework must have at least one role in order to
+  // be offered resources. Note that `role` is deprecated
+  // in favor of `roles` and only one of these fields must
+  // be used. Since we cannot distinguish between empty
+  // `roles` and the default unset `role`, we require that
+  // frameworks set the `MULTI_ROLE` capability if
+  // setting the `roles` field.
+  optional string role = 6 [default = "*", deprecated=true];
+  repeated string roles = 12;
 
   // Used to indicate the current host from which the scheduler is
   // registered in the Mesos Web UI. If set to an empty string Mesos
@@ -316,6 +334,15 @@ message FrameworkInfo {
       // Mesos when the agent reregisters (unless the master has
       // failed over).
       PARTITION_AWARE = 5;
+
+      // This expresses the ability for the framework to be
+      // "multi-tenant" via using the newly introduced `roles`
+      // field, and examining `Offer.allocation_info` to determine
+      // which role the offers are being made to. We also
+      // expect that "single-tenant" schedulers eventually
+      // provide this and move away from the deprecated
+      // `role` field.
+      MULTI_ROLE = 6;
     }
 
     // Enum fields should be optional, see: MESOS-4997.
@@ -332,6 +359,91 @@ message FrameworkInfo {
   // the framework). These labels are not interpreted by Mesos itself.
   // Labels should not contain duplicate key-value pairs.
   optional Labels labels = 11;
+}
+
+
+/**
+ * Describes a general non-interpreting non-killing check for a task or
+ * executor (or any arbitrary process/command). A type is picked by
+ * specifying one of the optional fields. Specifying more than one type
+ * is an error.
+ *
+ * NOTE: This API is unstable and the related feature is experimental.
+ */
+message CheckInfo {
+  enum Type {
+    UNKNOWN = 0;
+    COMMAND = 1;
+    HTTP = 2;
+    TCP = 3;
+
+    // TODO(alexr): Consider supporting custom user checks. They should
+    // probably be paired with a `data` field and complemented by a
+    // `data` response in `CheckStatusInfo`.
+  }
+
+  // Describes a command check. If applicable, enters mount and/or network
+  // namespaces of the task.
+  message Command {
+    required CommandInfo command = 1;
+  }
+
+  // Describes an HTTP check. Sends a GET request to
+  // http://<host>:port/path. Note that <host> is not configurable and is
+  // resolved automatically to 127.0.0.1.
+  message Http {
+    // Port to send the HTTP request.
+    required uint32 port = 1;
+
+    // HTTP request path.
+    optional string path = 2;
+
+    // TODO(alexr): Add support for HTTP method. While adding POST
+    // and PUT is simple, supporting payload is more involved.
+
+    // TODO(alexr): Add support for custom HTTP headers.
+
+    // TODO(alexr): Consider adding an optional message to describe TLS
+    // options and thus enabling https. Such message might contain certificate
+    // validation, TLS version.
+  }
+
+  // Describes a TCP check, i.e. based on establishing a TCP connection to
+  // the specified port. Note that <host> is not configurable and is resolved
+  // automatically to 127.0.0.1.
+  message Tcp {
+    required uint32 port = 1;
+  }
+
+  // The type of the check.
+  optional Type type = 1;
+
+  // Command check.
+  optional Command command = 2;
+
+  // HTTP check.
+  optional Http http = 3;
+
+  // TCP check.
+  optional Tcp tcp = 7;
+
+  // Amount of time to wait to start checking the task after it
+  // transitions to `TASK_RUNNING` or `TASK_STARTING` if the latter
+  // is used by the executor.
+  optional double delay_seconds = 4 [default = 15.0];
+
+  // Interval between check attempts, i.e., amount of time to wait after
+  // the previous check finished or timed out to start the next check.
+  optional double interval_seconds = 5 [default = 10.0];
+
+  // Amount of time to wait for the check to complete. Zero means infinite
+  // timeout.
+  //
+  // After this timeout, the check attempt is aborted and no result is
+  // reported. Note that this may be considered a state change and hence
+  // may trigger a check status change delivery to the corresponding
+  // scheduler. See `CheckStatusInfo` for more details.
+  optional double timeout_seconds = 6 [default = 20.0];
 }
 
 
@@ -397,19 +509,29 @@ message HealthCheck {
   // allows doing something similar to the HTTP strategy but
   // encapsulates all the details in a single string field.
 
-  // Amount of time to wait until starting the health checks.
+  // Amount of time to wait to start health checking the task after it
+  // transitions to `TASK_RUNNING` or `TASK_STATING` if the latter is
+  // used by the executor.
   optional double delay_seconds = 2 [default = 15.0];
 
-  // Interval between health checks.
+  // Interval between health checks, i.e., amount of time to wait after
+  // the previous health check finished or timed out to start the next
+  // health check.
   optional double interval_seconds = 3 [default = 10.0];
 
-  // Amount of time to wait for the health check to complete.
+  // Amount of time to wait for the health check to complete. After this
+  // timeout, the health check is aborted and treated as a failure. Zero
+  // means infinite timeout.
   optional double timeout_seconds = 4 [default = 20.0];
 
-  // Number of consecutive failures until signaling kill task.
+  // Number of consecutive failures until the task is killed by the executor.
   optional uint32 consecutive_failures = 5 [default = 3];
 
-  // Amount of time to allow failed health checks since launch.
+  // Amount of time after the task is launched during which health check
+  // failures are ignored. Once the a check succeeds for the first time,
+  // the grace period does not apply anymore. Note that it includes
+  // `delay_seconds`, i.e., setting `grace_period_seconds` < `delay_seconds`
+  // has no effect.
   optional double grace_period_seconds = 6 [default = 10.0];
 
   // TODO(alexr): Add an optional `KillPolicy` that should be used
@@ -544,6 +666,9 @@ message ExecutorInfo {
     //
     // 2) Default executor only accepts a *single* `LAUNCH` or `LAUNCH_GROUP`
     //    offer operation.
+    //
+    // 3) If `container` is set, `container.type` must be `MESOS`
+    //    and `container.mesos.image` must not be set.
     DEFAULT = 1;
 
     // For frameworks that need custom functionality to run tasks, a `CUSTOM`
@@ -662,6 +787,23 @@ message AgentInfo {
   repeated Resource resources = 3;
   repeated Attribute attributes = 5;
   optional AgentID id = 6;
+
+  message Capability {
+    enum Type {
+      // This must be the first enum value in this list, to
+      // ensure that if 'type' is not set, the default value
+      // is UNKNOWN. This enables enum values to be added
+      // in a backwards-compatible way. See: MESOS-4997.
+      UNKNOWN = 0;
+
+      // This expresses the ability for the agent to be able
+      // to launch tasks of a 'multi-role' framework.
+      MULTI_ROLE = 1;
+    }
+
+    // Enum fields should be optional, see: MESOS-4997.
+    optional Type type = 1;
+  }
 }
 
 
@@ -730,19 +872,21 @@ message Attribute {
 
 
 /**
- * Describes a resource on a machine. The `name` field is a string
- * like "cpus" or "mem" that indicates which kind of resource this is;
- * the rest of the fields describe the properties of the resource. A
- * resource can take on one of three types: scalar (double), a list of
- * finite and discrete ranges (e.g., [1-10, 20-30]), or a set of
- * items. A resource is described using the standard protocol buffer
- * "union" trick.
+ * Describes a resource from a resource provider. The `name` field is
+ * a string like "cpus" or "mem" that indicates which kind of resource
+ * this is; the rest of the fields describe the properties of the
+ * resource. A resource can take on one of three types: scalar
+ * (double), a list of finite and discrete ranges (e.g., [1-10,
+ * 20-30]), or a set of items. A resource is described using the
+ * standard protocol buffer "union" trick.
  *
  * Note that "disk" and "mem" resources are scalar values expressed in
  * megabytes. Fractional "cpus" values are allowed (e.g., "0.5"),
  * which correspond to partial shares of a CPU.
  */
 message Resource {
+  optional ResourceProviderID provider_id = 12;
+
   required string name = 1;
   required Value.Type type = 2;
   optional Value.Scalar scalar = 3;
@@ -753,6 +897,22 @@ message Resource {
   // that the resource is unreserved. Otherwise, the resource will only
   // be offered to frameworks that belong to this role.
   optional string role = 6 [default = "*"];
+
+  // This was initially introduced to support MULTI_ROLE capable
+  // frameworks. Frameworks that are not MULTI_ROLE capable can
+  // continue to assume that the offered resources are allocated
+  // to their role.
+  message AllocationInfo {
+    // If set, this resource is allocated to a role. Note that in the
+    // future, this may be unset and the scheduler may be responsible
+    // for allocating to one of its roles.
+    optional string role = 1;
+
+    // In the future, we may add additional fields here, e.g. priority
+    // tier, type of allocation (quota / fair share).
+  }
+
+  optional AllocationInfo allocation_info = 11;
 
   message ReservationInfo {
     // Describes a dynamic reservation. A dynamic reservation is
@@ -806,11 +966,6 @@ message Resource {
       // with the "destroy" ACL to determine whether an entity
       // attempting to destroy the volume is permitted to do so.
       //
-      // NOTE: This field is optional, while the `principal` found in
-      // `ReservationInfo` is required. This field is optional to
-      // allow for the possibility of volume creation without a
-      // principal, though currently it must be provided.
-      //
       // NOTE: This field should match the FrameworkInfo.principal of
       // the framework that created the volume.
       optional string principal = 2;
@@ -833,6 +988,7 @@ message Resource {
     // TODO(jmlvanre): Add support for BLOCK devices.
     message Source {
       enum Type {
+        UNKNOWN = 0;
         PATH = 1;
         MOUNT = 2;
       }
@@ -841,7 +997,7 @@ message Resource {
       // can be shared and carved up as necessary between frameworks.
       message Path {
         // Path to the folder (e.g., /mnt/raid/disk0).
-        required string root = 1;
+        optional string root = 1;
       }
 
       // A mounted file-system set up by the Agent administrator. This
@@ -849,7 +1005,7 @@ message Resource {
       // partial amount of this disk.
       message Mount {
         // Path to mount point (e.g., /mnt/raid/disk0).
-        required string root = 1;
+        optional string root = 1;
       }
 
       required Type type = 1;
@@ -881,6 +1037,7 @@ message Resource {
   // persistent volumes can be shared currently.
   optional SharedInfo shared = 10;
 }
+
 
 /**
  * When the network bandwidth caps are enabled and the container
@@ -1014,6 +1171,14 @@ message SNMPStatistics {
 }
 
 
+message DiskStatistics {
+  optional Resource.DiskInfo.Source source = 1;
+  optional Resource.DiskInfo.Persistence persistence = 2;
+  optional uint64 limit_bytes = 3;
+  optional uint64 used_bytes = 4;
+}
+
+
 /**
  * A snapshot of resource usage statistics.
  */
@@ -1087,6 +1252,9 @@ message ResourceStatistics {
   // Disk Usage Information for executor working directory.
   optional uint64 disk_limit_bytes = 26;
   optional uint64 disk_used_bytes = 27;
+
+  // Per disk (resource) statistics.
+  repeated DiskStatistics disk_statistics = 43;
 
   // Perf statistics.
   optional PerfStatistics perf = 13;
@@ -1274,6 +1442,12 @@ message Offer {
   // `Unavailability` for more details.
   optional Unavailability unavailability = 9;
 
+  // An offer represents resources allocated to *one* of the
+  // roles managed by the scheduler. (Therefore, each
+  // `Offer.resources[i].allocation_info` will match the
+  // top level `Offer.allocation_info`).
+  optional Resource.AllocationInfo allocation_info = 10;
+
   // Defines an operation that can be performed against offers.
   message Operation {
     enum Type {
@@ -1384,7 +1558,7 @@ message InverseOffer {
 
 /**
  * Describes a task. Passed from the scheduler all the way to an
- * executor (see mesos.SchedulerDriver::launchTasks and
+ * executor (see SchedulerDriver::launchTasks and
  * Executor::launchTask). Either ExecutorInfo or CommandInfo should be set.
  * A different executor can be used to launch this task, and subsequent tasks
  * meant for the same executor can reuse the same ExecutorInfo struct.
@@ -1405,6 +1579,16 @@ message TaskInfo {
   // command-based tasks. For tasks that specify an executor, it is
   // the executor's responsibility to implement the health checking.
   optional HealthCheck health_check = 8;
+
+  // A general check for the task. Implemented for all built-in executors.
+  // For tasks that specify an executor, it is the executor's responsibility
+  // to implement checking support. Executors should (all built-in executors
+  // will) neither interpret nor act on the check's result.
+  //
+  // NOTE: Check support in built-in executors is experimental.
+  //
+  // TODO(alexr): Consider supporting multiple checks per task.
+  optional CheckInfo check = 13;
 
   // A kill policy for the task. Implemented for executor-less
   // command-based and docker tasks. For tasks that specify an
@@ -1515,7 +1699,7 @@ enum TaskState {
   TASK_KILLED = 4;   // TERMINAL: The task was killed by the executor.
   TASK_ERROR = 7;    // TERMINAL: The task description contains an error.
 
-  // In Mesos 1.2, this will only be sent when the framework does NOT
+  // In Mesos 1.3, this will only be sent when the framework does NOT
   // opt-in to the PARTITION_AWARE capability.
   TASK_LOST = 5;     // TERMINAL: The task failed but can be rescheduled.
 
@@ -1559,6 +1743,59 @@ enum TaskState {
 
 
 /**
+* Describes the status of a check. Type and the corresponding field, i.e.,
+* `command` or `http` must be set. If the result of the check is not available
+* (e.g., the check timed out), these fields must contain empty messages, i.e.,
+* `exit_code` or `status_code` will be unset.
+*
+* NOTE: This API is unstable and the related feature is experimental.
+*/
+message CheckStatusInfo {
+  message Command {
+    // Exit code of a command check. It is the result of calling
+    // `WEXITSTATUS()` on `waitpid()` termination information on
+    // Posix and calling `GetExitCodeProcess()` on Windows.
+    optional int32 exit_code = 1;
+  }
+
+  message Http {
+    // HTTP status code of an HTTP check.
+    optional uint32 status_code = 1;
+  }
+
+  message Tcp {
+    // Whether a TCP connection succeeded.
+    optional bool succeeded = 1;
+  }
+
+  // TODO(alexr): Consider adding a `data` field, which can contain, e.g.,
+  // truncated stdout/stderr output for command checks or HTTP response body
+  // for HTTP checks. Alternatively, it can be an even shorter `message` field
+  // containing the last line of stdout or Reason-Phrase of the status line of
+  // the HTTP response.
+
+  // The type of the check this status corresponds to.
+  optional CheckInfo.Type type = 1;
+
+  // Status of a command check.
+  optional Command command = 2;
+
+  // Status of an HTTP check.
+  optional Http http = 3;
+
+  // Status of a TCP check.
+  optional Tcp tcp = 4;
+
+  // TODO(alexr): Consider introducing a "last changed at" timestamp, since
+  // task status update's timestamp may not correspond to the last check's
+  // state, e.g., for reconciliation.
+
+  // TODO(alexr): Consider introducing a `reason` enum here to explicitly
+  // distinguish between completed, delayed, and timed out checks.
+}
+
+
+/**
  * Describes the current status of a task.
  */
 message TaskStatus {
@@ -1593,6 +1830,7 @@ message TaskStatus {
     REASON_GC_ERROR = 4;
     REASON_INVALID_FRAMEWORKID = 5;
     REASON_INVALID_OFFERS = 6;
+    REASON_IO_SWITCHBOARD_EXITED = 27;
     REASON_MASTER_DISCONNECTED = 7;
     REASON_RECONCILIATION = 9;
     REASON_RESOURCES_UNKNOWN = 18;
@@ -1600,6 +1838,7 @@ message TaskStatus {
     REASON_AGENT_REMOVED = 11;
     REASON_AGENT_RESTARTED = 12;
     REASON_AGENT_UNKNOWN = 13;
+    REASON_TASK_CHECK_STATUS_UPDATED = 28;
     REASON_TASK_GROUP_INVALID = 25;
     REASON_TASK_GROUP_UNAUTHORIZED = 26;
     REASON_TASK_INVALID = 14;
@@ -1628,10 +1867,22 @@ message TaskStatus {
   // to a valid RFC-4122 UUID if using the HTTP API.
   optional bytes uuid = 11;
 
-  // Describes whether the task has been determined to be healthy
-  // (true) or unhealthy (false) according to the HealthCheck field in
-  // the command info.
+  // Describes whether the task has been determined to be healthy (true) or
+  // unhealthy (false) according to the `health_check` field in `TaskInfo`.
   optional bool healthy = 8;
+
+  // Contains check status for the check specified in the corresponding
+  // `TaskInfo`. If no check has been specified, this field must be
+  // absent, otherwise it must be present even if the check status is
+  // not available yet. If the status update is triggered for a different
+  // reason than `REASON_TASK_CHECK_STATUS_UPDATED`, this field will contain
+  // the last known value.
+  //
+  // NOTE: A check-related task status update is triggered if and only if
+  // the value or presence of any field in `CheckStatusInfo` changes.
+  //
+  // NOTE: Check support in built-in executors is experimental.
+  optional CheckStatusInfo check_status = 15;
 
   // Labels are free-form key value pairs which are exposed through
   // master and agent endpoints. Labels will not be interpreted or
@@ -1655,13 +1906,13 @@ message TaskStatus {
 
 /**
  * Describes possible filters that can be applied to unused resources
- * (see mesos.SchedulerDriver::launchTasks) to influence the allocator.
+ * (see SchedulerDriver::launchTasks) to influence the allocator.
  */
 message Filters {
   // Time to consider unused resources refused. Note that all unused
   // resources will be considered refused and use the default value
   // (below) regardless of whether Filters was passed to
-  // mesos.SchedulerDriver::launchTasks. You MUST pass Filters with this
+  // SchedulerDriver::launchTasks. You MUST pass Filters with this
   // field set to change this behavior (i.e., get another offer which
   // includes unused resources sooner or later than the default).
   optional double refuse_seconds = 1 [default = 5.0];
@@ -1671,12 +1922,29 @@ message Filters {
 /**
 * Describes a collection of environment variables. This is used with
 * CommandInfo in order to set environment variables before running a
-* command.
+* command. The contents of each variable may be specified as a string
+* or a Secret; only one of `value` and `secret` must be set.
 */
 message Environment {
   message Variable {
     required string name = 1;
-    required string value = 2;
+
+    enum Type {
+      UNKNOWN = 0;
+      VALUE = 1;
+      SECRET = 2;
+    }
+
+    // In Mesos 1.2, the `Environment.variables.value` message was made
+    // optional. The default type for `Environment.variables.type` is now VALUE,
+    // which requires `value` to be set, maintaining backward compatibility.
+    //
+    // TODO(greggomann): The default can be removed in Mesos 2.1 (MESOS-7134).
+    optional Type type = 3 [default = VALUE];
+
+    // Only one of `value` and `secret` must be set.
+    optional string value = 2;
+    optional Secret secret = 4;
   }
 
   repeated Variable variables = 1;
@@ -1722,6 +1990,53 @@ message Credential {
  */
 message Credentials {
   repeated Credential credentials = 1;
+}
+
+
+/**
+ * Secret used to pass privileged information. It is designed to provide
+ * pass-by-value or pass-by-reference semantics, where the REFERENCE type can be
+ * used by custom modules which interact with a secure back-end.
+ */
+message Secret
+{
+  enum Type {
+    UNKNOWN = 0;
+    REFERENCE = 1;
+    VALUE = 2;
+  }
+
+  // Can be used by modules to refer to a secret stored in a secure back-end.
+  // The `key` field is provided to permit reference to a single value within a
+  // secret containing arbitrary key-value pairs.
+  //
+  // For example, given a back-end secret store with a secret named
+  // "my-secret" containing the following key-value pairs:
+  //
+  //   {
+  //     "username": "my-user",
+  //     "password": "my-password
+  //   }
+  //
+  // the username could be referred to in a `Secret` by specifying
+  // "my-secret" for the `name` and "username" for the `key`.
+  message Reference
+  {
+    required string name = 1;
+    optional string key = 2;
+  }
+
+  // Used to pass the value of a secret.
+  message Value
+  {
+    required bytes data = 1;
+  }
+
+  optional Type type = 1;
+
+  // Only one of `reference` and `value` must be set.
+  optional Reference reference = 2;
+  optional Value value = 3;
 }
 
 
@@ -1805,7 +2120,18 @@ message Image {
     // Credential to authenticate with docker registry.
     // NOTE: This is not encrypted, therefore framework and operators
     // should enable SSL when passing this information.
-    optional Credential credential = 2;
+    //
+    // This is field is never used in Mesos before and is deprecated
+    // since Mesos 1.3. Please use the `Secret::Value` field `config`
+    // below (see MESOS-7088 for details).
+    optional Credential credential = 2 [deprecated = true]; // Since 1.3.
+
+    // The UTF-8 character encoded byte data, which is expected as
+    // a docker config file in JSON format. This field is used for
+    // supporting docker private registry credential per container.
+    // Users can specify different docker config files for pulling
+    // their private images from different registries.
+    optional Secret config = 3;
   }
 
   required Type type = 1;
@@ -1864,10 +2190,11 @@ message Volume {
       // TODO(gyliu513): Add HOST_PATH and IMAGE as volume source type.
       DOCKER_VOLUME = 1;
       SANDBOX_PATH = 2;
+      SECRET = 3;
     }
 
     message DockerVolume {
-      // mesos.Driver of the volume, it can be flocker, convoy, raxrey etc.
+      // Driver of the volume, it can be flocker, convoy, raxrey etc.
       optional string driver = 1;
 
       // Name of the volume.
@@ -1906,6 +2233,10 @@ message Volume {
     optional DockerVolume docker_volume = 2;
 
     optional SandboxPath sandbox_path = 3;
+
+    // The volume/secret isolator uses the secret-fetcher module (third-party or
+    // internal) downloads the secret and makes it available at container_path.
+    optional Secret secret = 4;
   }
 
   optional Source source = 5;
@@ -2122,6 +2453,13 @@ message TTYInfo {
 /**
  * Describes a container configuration and allows extensible
  * configurations for different container implementations.
+ *
+ * NOTE: `ContainerInfo` may be specified, e.g., by a task, even if no
+ * container image is provided. In this case neither `MesosInfo` nor
+ * `DockerInfo` is set, the required `type` must be `MESOS`. This is to
+ * address a case when a task without an image, e.g., a shell script
+ * with URIs, wants to use features originally designed for containers,
+ * for example custom network isolation via `NetworkInfo`.
  */
 message ContainerInfo {
   // All container implementation types.
@@ -2397,4 +2735,31 @@ message FileInfo {
 
   // Group ID of owner.
   optional string gid = 7;
+}
+
+
+/**
+ * Describes information abount a device.
+ */
+message Device {
+  required string path = 1;
+}
+
+
+/**
+ * Describes a device whitelist entry that expose from host to container.
+ */
+message DeviceAccess {
+  message Access {
+    optional bool read = 1;
+    optional bool write = 2;
+    optional bool mknod = 3;
+  }
+  required Device device = 1;
+  required Access access = 2;
+}
+
+
+message DeviceWhitelist {
+  repeated DeviceAccess allowed_devices = 1;
 }
