@@ -1,5 +1,6 @@
-package mesos
+package example
 
+import com.treadstone90.mesos.scheduler.Driver
 import org.apache.mesos.v1.mesos.{FrameworkID, OfferID, TaskStatus}
 import org.apache.mesos.v1.scheduler.scheduler.Event.{Failure, Message, Offers, Subscribed}
 

@@ -1,4 +1,4 @@
-package http
+package com.treadstone90.mesos.http
 
 /**
   * Created by karthik on 7/15/17.

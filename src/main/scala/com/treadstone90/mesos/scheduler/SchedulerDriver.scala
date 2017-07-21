@@ -1,11 +1,12 @@
-package mesos
+package com.treadstone90.mesos.scheduler
 
 import java.net.URI
 
 import com.google.common.net.HostAndPort
+import com.treadstone90.mesos.http.{ClientErrorStatus, ClientRuntimeStatus, SubscriptionNotFound, _}
 import com.twitter.logging.Logger
 import com.twitter.util.{Await, Future}
-import http.{ClientAborted, _}
+import example.Scheduler
 import org.apache.curator.framework.CuratorFrameworkFactory
 import org.apache.curator.retry.ExponentialBackoffRetry
 import org.apache.mesos.v1.mesos.Offer.Operation

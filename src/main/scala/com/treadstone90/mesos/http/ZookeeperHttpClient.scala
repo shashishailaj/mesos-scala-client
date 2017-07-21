@@ -1,4 +1,4 @@
-package http
+package com.treadstone90.mesos.http
 
 import java.util.concurrent.locks.ReentrantReadWriteLock
 

@@ -1,16 +1,18 @@
-package http
+package com.treadstone90.mesos.http
 
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{Executors, TimeUnit}
 
 import com.google.common.net.HostAndPort
+import com.treadstone90.mesos.MesosEventHandler
+import com.treadstone90.mesos.scheduler.Driver
 import com.twitter.concurrent.AsyncStream
 import com.twitter.finagle.Http
 import com.twitter.finagle.http.{Request, Response, Status => FinagleStatus}
 import com.twitter.io.{Buf, Reader}
 import com.twitter.logging.Logger
 import com.twitter.util.{Future, Promise, Try}
-import mesos.{Driver, MesosEventHandler}
+import example.MesosEventHandler
 import org.apache.mesos.v1.mesos.FrameworkInfo
 import org.apache.mesos.v1.scheduler.scheduler.Call.Subscribe
 import org.apache.mesos.v1.scheduler.scheduler.Call.Type.SUBSCRIBE

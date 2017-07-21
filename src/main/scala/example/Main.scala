@@ -1,7 +1,9 @@
+package example
+
 /**
   * Created by karthik on 11/15/16.
   */
-import mesos.{PrintingEventHandler, SchedulerDriver}
+import com.treadstone90.mesos.scheduler.SchedulerDriver
 import org.apache.mesos.v1.mesos.FrameworkInfo
 /**
   * This client connects to a Streaming HTTP service, prints 1000 messages, then

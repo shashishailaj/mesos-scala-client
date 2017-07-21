@@ -31,7 +31,7 @@ scroogeThriftOutputFolder in Compile <<= baseDirectory(_ / "target" / "scala-2.1
 libraryDependencies += "com.trueaccord.scalapb" %% "scalapb-json4s" % "0.1.2"
 libraryDependencies += "com.google.guava" % "guava" % "20.0"
 libraryDependencies += "com.twitter" %% "finatra-thrift" % "2.6.0"
-libraryDependencies += "com.twitter" %% "finatra-http" % "2.6.0"
+libraryDependencies += "com.twitter" %% "finatra-com.treadstone90.mesos.http" % "2.6.0"
 libraryDependencies +=  "com.twitter" %% "finatra-thrift" % "2.6.0" % "test" classifier "tests"
 
 // https://mvnrepository.com/artifact/ch.qos.logback/logback-classic

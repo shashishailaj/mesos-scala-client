@@ -1,4 +1,4 @@
-package mesos
+package com.treadstone90.mesos.scheduler
 
 import org.apache.mesos.v1.mesos.{Filters, OfferID, Status, TaskInfo}
 import org.apache.mesos.v1.scheduler.scheduler.Call

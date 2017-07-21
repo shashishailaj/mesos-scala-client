@@ -1,4 +1,4 @@
-package http
+package com.treadstone90.mesos.http
 
 import com.twitter.finagle.http.Response
 import com.twitter.util.Future

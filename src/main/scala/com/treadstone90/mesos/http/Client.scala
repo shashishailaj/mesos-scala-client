@@ -1,4 +1,4 @@
-package http
+package com.treadstone90.mesos.http
 
 
 import com.google.common.net.HostAndPort
