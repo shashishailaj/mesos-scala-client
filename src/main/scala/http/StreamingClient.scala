@@ -9,9 +9,9 @@ import org.apache.mesos.v1.scheduler.scheduler.Call
   */
 
 trait StreamingClient {
-  def subscribe(): Future[DriverStatus]
-  def shutdown(status: DriverStatus): Future[Unit]
-  def call(call: Call): Future[Response]
+  def subscribe(): Future[ClientStatus]
+  def shutdown(status: ClientStatus): Future[ClientStatus]
+  def call(call: Call): Future[ClientStatus]
 }
 
 case class MesosStreamSubscription(mesosStreamId: String)

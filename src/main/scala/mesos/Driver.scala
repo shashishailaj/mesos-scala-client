@@ -1,6 +1,6 @@
 package mesos
 
-import org.apache.mesos.v1.mesos.{Filters, OfferID, TaskInfo}
+import org.apache.mesos.v1.mesos.{Filters, OfferID, Status, TaskInfo}
 import org.apache.mesos.v1.scheduler.scheduler.Call
 import org.apache.mesos.v1.scheduler.scheduler.Call.{Accept, Acknowledge, Kill, Message, Reconcile}
 
@@ -10,31 +10,31 @@ import org.apache.mesos.v1.scheduler.scheduler.Call.{Accept, Acknowledge, Kill, 
 trait Driver {
   def abort(): Unit
 
-  def acceptOffers(accept: Accept): Unit
+  def acceptOffers(accept: Accept): Status
 
-  def acknowledgeStatusUpdate(acknowledge: Acknowledge): Unit
+  def acknowledgeStatusUpdate(acknowledge: Acknowledge): Status
 
-  def declineOffer(offerIds: Seq[OfferID], filters: Option[Filters]): Unit
+  def declineOffer(offerIds: Seq[OfferID], filters: Option[Filters]): Status
 
-  def killTask(kill: Kill): Unit
+  def killTask(kill: Kill): Status
 
-  def shutdown(shutdown: Call.Shutdown): Unit
+  def shutdown(shutdown: Call.Shutdown): Status
 
-  def launchTasks(offerIds: Seq[OfferID], tasks: Seq[TaskInfo]): Unit
+  def launchTasks(offerIds: Seq[OfferID], tasks: Seq[TaskInfo]): Status
 
-  def launchTasks(offerIds: Seq[OfferID], tasks: Seq[TaskInfo], filters: Filters): Unit
+  def launchTasks(offerIds: Seq[OfferID], tasks: Seq[TaskInfo], filters: Filters): Status
 
-  def reconcileTasks(reconcile: Reconcile): Unit
+  def reconcileTasks(reconcile: Reconcile): Status
 
-  def requestResources(requests: Call.Request): Unit
+  def requestResources(requests: Call.Request): Status
 
-  def reviveOffers(): Unit
+  def reviveOffers(): Status
 
-  def run(): Unit
+  def run(): Status
 
-  def sendFrameworkMessage(message: Message): Unit
+  def sendFrameworkMessage(message: Message): Status
 
-  def stop(failover: Boolean): Unit
+  def stop(failover: Boolean): Status
 
-  def suppressOffers(): Unit
+  def suppressOffers(): Status
 }
