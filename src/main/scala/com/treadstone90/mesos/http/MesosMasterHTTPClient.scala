@@ -4,7 +4,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{Executors, TimeUnit}
 
 import com.google.common.net.HostAndPort
-import com.treadstone90.mesos.MesosEventHandler
 import com.treadstone90.mesos.scheduler.Driver
 import com.twitter.concurrent.AsyncStream
 import com.twitter.finagle.Http

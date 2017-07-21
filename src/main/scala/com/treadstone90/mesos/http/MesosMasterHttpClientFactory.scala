@@ -1,7 +1,6 @@
 package com.treadstone90.mesos.http
 
 import com.google.common.net.HostAndPort
-import com.treadstone90.mesos.MesosEventHandler
 import com.treadstone90.mesos.scheduler.Driver
 import example.MesosEventHandler
 import org.apache.mesos.v1.mesos.{FrameworkInfo, MasterInfo}
