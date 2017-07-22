@@ -389,7 +389,7 @@ message CheckInfo {
   }
 
   // Describes an HTTP check. Sends a GET request to
-  // http://<host>:port/path. Note that <host> is not configurable and is
+  // com.treadstone90.mesos.http://<host>:port/path. Note that <host> is not configurable and is
   // resolved automatically to 127.0.0.1.
   message Http {
     // Port to send the HTTP request.
@@ -466,7 +466,7 @@ message HealthCheck {
   // treat return codes between 200 and 399 as success; custom executors
   // may employ a different strategy, e.g. leveraging the `statuses` field.
   message HTTPCheckInfo {
-    // Currently "http" and "https" are supported.
+    // Currently "com.treadstone90.mesos.http" and "https" are supported.
     optional string scheme = 3;
 
     // Port to send the HTTP request.
@@ -1744,7 +1744,7 @@ enum TaskState {
 
 /**
 * Describes the status of a check. Type and the corresponding field, i.e.,
-* `command` or `http` must be set. If the result of the check is not available
+* `command` or `com.treadstone90.mesos.http` must be set. If the result of the check is not available
 * (e.g., the check timed out), these fields must contain empty messages, i.e.,
 * `exit_code` or `status_code` will be unset.
 *

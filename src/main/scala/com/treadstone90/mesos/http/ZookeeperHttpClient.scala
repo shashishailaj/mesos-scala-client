@@ -1,9 +1,9 @@
-package http
+package com.treadstone90.mesos.http
 
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
-import com.twitter.finagle.http.Response
-import com.twitter.util.{Future, Promise}
+import com.twitter.logging.Logger
+import com.twitter.util.{Await, Future, Promise}
 import io.circe.generic.auto._
 import io.circe.parser._
 import org.apache.curator.framework.CuratorFramework
@@ -11,7 +11,6 @@ import org.apache.curator.framework.recipes.cache.PathChildrenCache.StartMode
 import org.apache.curator.framework.recipes.cache.{ChildData, PathChildrenCache, PathChildrenCacheEvent, PathChildrenCacheListener}
 import org.apache.mesos.v1.mesos.MasterInfo
 import org.apache.mesos.v1.scheduler.scheduler.Call
-import com.twitter.logging.Logger
 
 import scala.collection.JavaConverters._
 
@@ -28,7 +27,7 @@ class ZkAwareHttpClient(curatorFramework: CuratorFramework,
 
   private var mesosMasterHTTPClient: Option[MesosMasterHTTPClient] = None
 
-  private val zkExitFuture = Promise[DriverStatus]()
+  private val zkExitFuture = Promise[ClientStatus]()
   private val clientLock = new ReentrantReadWriteLock()
 
   private val pathCache = new PathChildrenCache(curatorFramework, path, true)
@@ -72,12 +71,14 @@ class ZkAwareHttpClient(curatorFramework: CuratorFramework,
     try {
       writeLock.lock()
       log.info(s"Triggering change in leader from ${mesosMasterHTTPClient.map(_.hostAndPort)} to ${masterInfo}")
-      mesosMasterHTTPClient.foreach(_.shutdown(LeaderChanged))
+      if(mesosMasterHTTPClient.isDefined) {
+        Await.result(mesosMasterHTTPClient.get.shutdown(LeaderChanged))
+      }
       mesosMasterHTTPClient = Some(mesosMasterHttpClientFactory.newClient(masterInfo))
       if (isSubscribed) {
         subscribeAndRegister()
       } else {
-        log.warning("Driver has not subscribed to event streams. Skipping..")
+        log.info("Driver has not subscribed to event streams. Registering for the first time")
       }
     } finally {
       writeLock.unlock()
@@ -95,9 +96,13 @@ class ZkAwareHttpClient(curatorFramework: CuratorFramework,
     }
   }
 
-  def subscribe(): Future[DriverStatus] = {
+  def subscribe(): Future[ClientStatus] = {
     if(mesosMasterHTTPClient.isEmpty) {
-      throw new RuntimeException("Unable to subscribe. Either subscribe is called twice.")
+      log.error(s"Leader not yet discovered.")
+      Future(LeaderNotFound)
+    } else if(isSubscribed) {
+      log.error(s"Driver already subscribed for framework.")
+      Future(RuntimeError)
     } else {
       isSubscribed = true
       subscribeAndRegister()
@@ -105,13 +110,18 @@ class ZkAwareHttpClient(curatorFramework: CuratorFramework,
     }
   }
 
-  private def subscribeAndRegister(): Future[DriverStatus] = {
+  private def subscribeAndRegister(): Future[ClientStatus] = {
     val exitStatusFuture = mesosMasterHTTPClient.get.subscribe()
+    // There cannot be a failure case here.
     exitStatusFuture.onSuccess {
-      case driverStatus @(HeartBeatFailure | SubscriptionNotFound) =>
+      case driverStatus: ClientErrorStatus =>
         zkExitFuture.setValue(driverStatus)
-      case LeaderChanged =>
-        log.info("Leader has changed not propagating error back to driver.")
+      case r: ClientRuntimeStatus =>
+        log.info(s"Received status $r not propagating")
+    }.rescue {
+      case e: Exception =>
+        log.error(e, s"Unexpected error")
+        Future(ClientAborted)
     }
   }
 
@@ -130,12 +140,12 @@ class ZkAwareHttpClient(curatorFramework: CuratorFramework,
   }
 
 
-  def shutdown(status: DriverStatus): Future[Unit] = {
+  def shutdown(status: ClientStatus): Future[ClientStatus] = {
     mesosMasterHTTPClient.get.shutdown(status)
       .onSuccess(_ => zkExitFuture.setValue(status))
   }
 
-  def call(call: Call): Future[Response] = {
+  def call(call: Call): Future[ClientStatus] = {
     val readLock = clientLock.readLock
     try {
       readLock.lock()

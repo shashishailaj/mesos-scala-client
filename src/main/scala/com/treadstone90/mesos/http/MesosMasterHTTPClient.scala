@@ -1,16 +1,17 @@
-package http
+package com.treadstone90.mesos.http
 
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{Executors, TimeUnit}
 
 import com.google.common.net.HostAndPort
+import com.treadstone90.mesos.scheduler.Driver
 import com.twitter.concurrent.AsyncStream
 import com.twitter.finagle.Http
 import com.twitter.finagle.http.{Request, Response, Status => FinagleStatus}
 import com.twitter.io.{Buf, Reader}
 import com.twitter.logging.Logger
 import com.twitter.util.{Future, Promise, Try}
-import mesos.{Driver, MesosEventHandler}
+import example.MesosEventHandler
 import org.apache.mesos.v1.mesos.FrameworkInfo
 import org.apache.mesos.v1.scheduler.scheduler.Call.Subscribe
 import org.apache.mesos.v1.scheduler.scheduler.Call.Type.SUBSCRIBE
@@ -34,13 +35,12 @@ class MesosMasterHTTPClient(val hostAndPort: HostAndPort,
   private val heartBeatCounter = new AtomicInteger(0)
 
   private val mesosStreamIdHeader = "Mesos-Stream-Id"
-  private val eventCallbackExecutor = Executors.newSingleThreadExecutor()
   private val heartBeatScheduler = Executors.newScheduledThreadPool(1)
   private var mesosStreamSubscrption: Option[MesosStreamSubscription] = None
-  private val driverExitPromise = Promise[DriverStatus]()
+  private val clientExitPromise = Promise[ClientStatus]()
   private val log = Logger.get(getClass)
 
-  def subscribe(): Future[DriverStatus] = {
+  def subscribe(): Future[ClientStatus] = {
     val subscription = Subscribe(frameworkInfo)
     val callRequest: Call = Call(`type` = Some(SUBSCRIBE),
       subscribe = Some(subscription))
@@ -56,33 +56,42 @@ class MesosMasterHTTPClient(val hostAndPort: HostAndPort,
         def run(): Unit = {
           val beats = heartBeatCounter.getAndSet(0)
           if(beats < 1) {
-            log.error(s"Received only ${beats} heartbeats in the last minute. Killing connection to master.")
+            log.error(s"Received only $beats heartbeats in the last minute. Killing connection to master.")
             shutdown(HeartBeatFailure)
           }
         }
       }, 30, 30, TimeUnit.SECONDS)
     }.onFailure { t =>
-      log.error(s"Failed to obtain mesos stream subscription ${t}. Shutting down client.")
+      log.error(t, s"Failed to obtain mesos stream subscription $t. Aborting client.")
       shutdown(SubscriptionNotFound)
     }
-    driverExitPromise
+    clientExitPromise
   }
 
-  def shutdown(driverStatus: DriverStatus): Future[Unit] = {
+  def shutdown(driverStatus: ClientStatus): Future[ClientStatus] = {
     callClient.close().flatMap { _ =>
       streamClient.close()
-    }.onSuccess { _ =>
-      eventCallbackExecutor.shutdownNow()
+    }.transform { e =>
+      e.onFailure { ex =>
+        log.error(ex, "Encountered error while shutting down client. Closing executors")
+      }
       heartBeatScheduler.shutdownNow()
-      driverExitPromise.setValue(driverStatus)
+      clientExitPromise.setValue(driverStatus)
+      Future(driverStatus)
     }
   }
 
-  def call(call: Call): Future[Response] = {
-    val populatedCall = call.copy(frameworkId = frameworkInfo.id)
-    val request = SchedulerCallRequest(Buf.ByteArray(populatedCall.toByteArray: _*), endpoint)
-    mesosStreamSubscrption.foreach(s => request.headerMap.add(mesosStreamIdHeader, s.mesosStreamId))
-    callClient(request)
+  def call(call: Call): Future[ClientStatus] = {
+    if(mesosStreamSubscrption.isEmpty) {
+      clientExitPromise.setValue(SubscriptionNotFound)
+      Future(SubscriptionNotFound)
+    } else {
+      val populatedCall = call.copy(frameworkId = frameworkInfo.id)
+      val request = SchedulerCallRequest(Buf.ByteArray(populatedCall.toByteArray: _*), endpoint)
+      mesosStreamSubscrption.foreach(s => request.headerMap.add(mesosStreamIdHeader, s.mesosStreamId))
+      callClient(request).map(_ => ClientRunning)
+        .rescue { case e: Exception =>  shutdown(RuntimeError) }
+    }
   }
 
   private def doRequest(request: Request): Future[MesosStreamSubscription] = {
@@ -102,7 +111,6 @@ class MesosMasterHTTPClient(val hostAndPort: HostAndPort,
       Try {
         val byteBuf = Buf.ByteBuffer.Owned.extract(buf)
         val array = removeLF(byteBuf.array())
-        // add exception handling here
         val event = Event.parseFrom(array)
         handleEvent(event)
       }

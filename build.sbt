@@ -1,6 +1,8 @@
+organization := "com.treadstone90"
+
 name := "mesos-scala-client"
 
-version := "1.0"
+version := "0.1"
 
 scalaVersion := "2.11.8"
 
@@ -42,5 +44,4 @@ libraryDependencies += "org.apache.curator" % "curator-framework" % "3.3.0"
 
 libraryDependencies += "org.apache.curator" % "curator-recipes" % "3.3.0"
 
-
-
+sources in (Compile, doc) := Seq.empty
