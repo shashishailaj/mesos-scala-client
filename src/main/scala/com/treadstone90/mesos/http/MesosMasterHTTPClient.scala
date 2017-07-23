@@ -7,6 +7,7 @@ import com.google.common.net.HostAndPort
 import com.treadstone90.mesos.scheduler.{Scheduler, SchedulerDriver}
 import com.twitter.concurrent.AsyncStream
 import com.twitter.finagle.Http
+import com.twitter.finagle.http.Status.{ClientError, ServerError, Successful}
 import com.twitter.finagle.http.{Request, Response, Status => FinagleStatus}
 import com.twitter.io.{Buf, Reader}
 import com.twitter.logging.Logger
@@ -103,7 +104,17 @@ class MesosMasterHTTPClient(val hostAndPort: HostAndPort,
       mesosStreamSubscrption.foreach(s => request.headerMap.add(mesosStreamIdHeader, s.mesosStreamId))
       callClient(request).map { response =>
         log.debug(s"Received response with status ${response.status}")
-        ClientRunning
+        response.status match {
+          case ClientError(status) => {
+            log.error("Malformed request sent by the scheduler. Terminating scheduler")
+            throw new RuntimeException(status.reason)
+          }
+          case ServerError(status) => {
+            log.warning(s"Receiving 5xx error from master $status")
+            ClientRunning
+          }
+          case Successful(status) => ClientRunning
+        }
       }.rescue { case e: Exception =>  shutdown(RuntimeError) }
     }
   }

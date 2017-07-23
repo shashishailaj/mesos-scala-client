@@ -96,8 +96,8 @@ Below is a list of features we would like to one day include in this project
 
 1. Support the [Executor HTTP API](http://mesos.apache.org/documentation/latest/executor-http-api/).
 2. Support Scala 2.12.x
-3. More examples.
-4. Better documentation.
+3. Better documentation.
+
 
 ## License
 
