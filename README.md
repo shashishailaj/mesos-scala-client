@@ -12,7 +12,7 @@ converts mesos protobuf messages to case classes.
 
 The client also supports talking to a mesos master setup in HA mode. So you
 can pass a Zookeeper path and the client will automatically route requests to
-the current mesos master in the event of master failover.
+the current mesos master in the event of a master failover.
 
 ## Configuration
 
