@@ -35,11 +35,6 @@ libraryDependencies ++= Seq(
 
 This project is compiled, tested, and published only against 2.11.x. Working on supporting 2.12.x.
 
-## Usage
-
-To use **mesos-scala-client**, you should import it and call it...
-
-
 ## Examples
 
 1. Scheduler client with mesos master in HA mode.
