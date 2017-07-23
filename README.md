@@ -3,17 +3,16 @@
 
 ## Scheduler HTTP API
 
-This library provides a scala client for the [mesos scheduler api](http://mesos.apache.org/documentation/latest/scheduler-http-api).
+This library provides a scala client for the [mesos scheduler API](http://mesos.apache.org/documentation/latest/scheduler-http-api).
 
-This library doesn't depend on libmesos so it is scala all the way though.
+This library doesn't depend on libmesos so it is scala all the way through.
 
 The protobufs are generated using the awesome [ScalaPb project](https://scalapb.github.io/) which
-converts protobuf messages to case classes.
+converts mesos protobuf messages to case classes.
 
 The client also supports talking to a mesos master setup in HA mode. So you
-can pass a Zookeeper path and client will automatically route requests to
+can pass a Zookeeper path and the client will automatically route requests to
 the current mesos master in the event of master failover.
-
 
 ## Configuration
 
@@ -28,7 +27,7 @@ Add **mesos-scala-client** as a dependency in your `build.sbt` or `Build.scala` 
 ```scala
 libraryDependencies ++= Seq(
   // Other dependencies ...
-  "com.treadstone90" %% "mesosscalaclient" % "0.0.1" % "compile"
+  "com.treadstone90" %% "mesos-scala-client" % "0.0.1" % "compile"
 )
 ```
 
