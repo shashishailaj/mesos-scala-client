@@ -2,6 +2,7 @@ package com.treadstone90.mesos.http
 
 import java.util.concurrent.locks.ReentrantReadWriteLock
 
+import com.treadstone90.mesos.scheduler.Scheduler
 import com.twitter.logging.Logger
 import com.twitter.util.{Await, Future, Promise}
 import io.circe.generic.auto._
@@ -19,8 +20,8 @@ import scala.collection.JavaConverters._
   */
 class ZkAwareHttpClient(curatorFramework: CuratorFramework,
                         path: String,
+                        scheduler: Scheduler,
                         mesosMasterHttpClientFactory: MesosMasterHttpClientFactory) extends StreamingClient {
-
 
   private var isSubscribed = false
   private val log = Logger.get(getClass)
@@ -74,7 +75,8 @@ class ZkAwareHttpClient(curatorFramework: CuratorFramework,
       if(mesosMasterHTTPClient.isDefined) {
         Await.result(mesosMasterHTTPClient.get.shutdown(LeaderChanged))
       }
-      mesosMasterHTTPClient = Some(mesosMasterHttpClientFactory.newClient(masterInfo))
+      mesosMasterHTTPClient = Some(mesosMasterHttpClientFactory.newClient(masterInfo,
+        new ZkWrappingScheduler(scheduler, isSubscribed)))
       if (isSubscribed) {
         subscribeAndRegister()
       } else {
@@ -138,7 +140,6 @@ class ZkAwareHttpClient(curatorFramework: CuratorFramework,
       None
     }
   }
-
 
   def shutdown(status: ClientStatus): Future[ClientStatus] = {
     mesosMasterHTTPClient.get.shutdown(status)

@@ -4,15 +4,14 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.{Executors, TimeUnit}
 
 import com.google.common.net.HostAndPort
-import com.treadstone90.mesos.scheduler.Driver
+import com.treadstone90.mesos.scheduler.{Scheduler, SchedulerDriver}
 import com.twitter.concurrent.AsyncStream
 import com.twitter.finagle.Http
 import com.twitter.finagle.http.{Request, Response, Status => FinagleStatus}
 import com.twitter.io.{Buf, Reader}
 import com.twitter.logging.Logger
 import com.twitter.util.{Future, Promise, Try}
-import example.MesosEventHandler
-import org.apache.mesos.v1.mesos.FrameworkInfo
+import org.apache.mesos.v1.mesos.{FrameworkID, FrameworkInfo}
 import org.apache.mesos.v1.scheduler.scheduler.Call.Subscribe
 import org.apache.mesos.v1.scheduler.scheduler.Call.Type.SUBSCRIBE
 import org.apache.mesos.v1.scheduler.scheduler.{Call, Event}
@@ -22,8 +21,8 @@ import org.apache.mesos.v1.scheduler.scheduler.{Call, Event}
   */
 class MesosMasterHTTPClient(val hostAndPort: HostAndPort,
                             frameworkInfo: FrameworkInfo,
-                            eventHandler: MesosEventHandler,
-                            mesosDriver: Driver) extends StreamingClient {
+                            eventHandler: Scheduler,
+                            mesosDriver: SchedulerDriver) extends StreamingClient {
 
   private val endpoint = s"${hostAndPort.getHost}:${hostAndPort.getPort}"
   private val streamClient = Http.client
@@ -37,13 +36,22 @@ class MesosMasterHTTPClient(val hostAndPort: HostAndPort,
   private val mesosStreamIdHeader = "Mesos-Stream-Id"
   private val heartBeatScheduler = Executors.newScheduledThreadPool(1)
   private var mesosStreamSubscrption: Option[MesosStreamSubscription] = None
-  private val clientExitPromise = Promise[ClientStatus]()
   private val log = Logger.get(getClass)
+
+  private var frameworkId: Option[FrameworkID] = {
+    if(frameworkInfo.id.nonEmpty) {
+      log.info("Reusing frameworkInfo passed in from driver.")
+      frameworkInfo.id
+    } else {
+      None
+    }
+  }
+  private val clientExitPromise = Promise[ClientStatus]()
 
   def subscribe(): Future[ClientStatus] = {
     val subscription = Subscribe(frameworkInfo)
     val callRequest: Call = Call(`type` = Some(SUBSCRIBE),
-      subscribe = Some(subscription))
+      subscribe = Some(subscription)).copy(frameworkId = frameworkId)
 
     val request = SchedulerCallRequest(Buf.ByteArray(callRequest.toByteArray: _*),
       endpoint)
@@ -85,12 +93,18 @@ class MesosMasterHTTPClient(val hostAndPort: HostAndPort,
     if(mesosStreamSubscrption.isEmpty) {
       clientExitPromise.setValue(SubscriptionNotFound)
       Future(SubscriptionNotFound)
+    } else if(frameworkId.isEmpty) {
+      log.error("FrameworkID is empty after registration.")
+      clientExitPromise.setValue(SubscriptionNotFound)
+      Future(SubscriptionNotFound)
     } else {
-      val populatedCall = call.copy(frameworkId = frameworkInfo.id)
+      val populatedCall = call.copy(frameworkId = frameworkId)
       val request = SchedulerCallRequest(Buf.ByteArray(populatedCall.toByteArray: _*), endpoint)
       mesosStreamSubscrption.foreach(s => request.headerMap.add(mesosStreamIdHeader, s.mesosStreamId))
-      callClient(request).map(_ => ClientRunning)
-        .rescue { case e: Exception =>  shutdown(RuntimeError) }
+      callClient(request).map { response =>
+        log.debug(s"Received response with status ${response.status}")
+        ClientRunning
+      }.rescue { case e: Exception =>  shutdown(RuntimeError) }
     }
   }
 
@@ -118,24 +132,35 @@ class MesosMasterHTTPClient(val hostAndPort: HostAndPort,
   }
 
   def monitorHeartbeat(): Unit = {
-    log.debug("Received heart beat from mesos master")
+    log.info("Received heart beat from mesos master")
     heartBeatCounter.incrementAndGet()
   }
 
   private def handleEvent(event: Event): Unit = {
     event.`type` match {
-      case Some(Event.Type.SUBSCRIBED) =>
-        eventHandler.subscribed(mesosDriver, event.subscribed.get)
+      case Some(Event.Type.SUBSCRIBED) => {
+        if(frameworkId.isEmpty) {
+          frameworkId = Some(event.subscribed.get.frameworkId)
+        } else {
+          assert(frameworkId.contains(event.subscribed.get.frameworkId),
+            "FrameworkId returned by master is different than what was sent in subscribed")
+        }
+        eventHandler.registered(mesosDriver, event.subscribed.get)
+      }
       case Some(Event.Type.OFFERS) =>
         eventHandler.resourceOffers(mesosDriver, event.offers.get)
       case Some(Event.Type.RESCIND) =>
-        eventHandler.rescind(mesosDriver, event.rescind.get.offerId)
+        eventHandler.offerRescinded(mesosDriver, event.rescind.get.offerId)
       case Some(Event.Type.UPDATE) =>
-        eventHandler.update(mesosDriver, event.update.get.status)
+        eventHandler.statusUpdate(mesosDriver, event.update.get.status)
       case Some(Event.Type.MESSAGE) =>
-        eventHandler.message(mesosDriver, event.message.get)
+        eventHandler.frameworkMessage(mesosDriver, event.message.get)
       case Some(Event.Type.FAILURE) =>
-        eventHandler.failure(mesosDriver, event.failure.get)
+        if(event.failure.get.executorId.isDefined) {
+          eventHandler.executorLost(mesosDriver, event.failure.get.executorId.get, event.failure.get.agentId.get)
+        } else {
+          eventHandler.agentLost(mesosDriver, event.failure.get.agentId.get)
+        }
       case Some(Event.Type.ERROR) =>
         eventHandler.error(mesosDriver, event.error.get.message)
       case Some(Event.Type.HEARTBEAT) =>
@@ -179,9 +204,12 @@ class MesosMasterHTTPClient(val hostAndPort: HostAndPort,
 
   private def fromReader(reader: Reader): AsyncStream[Buf] =
     AsyncStream.fromFuture(readBytes(reader)).flatMap {
-      case None => AsyncStream.empty
-      case Some(a) =>
+      case None => {
+        AsyncStream.empty
+      }
+      case Some(a) => {
         a +:: fromReader(reader)
+      }
     }
 }
 
