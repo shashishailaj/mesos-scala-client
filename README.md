@@ -43,22 +43,58 @@ This assumes that mesos master is running locally at port 5050 and zookeeper is 
 
 ```scala
 
-package example
-
-import com.treadstone90.mesos.scheduler.SchedulerDriver
-import org.apache.mesos.v1.mesos.FrameworkInfo
+import com.treadstone90.mesos.scheduler.{MesosSchedulerDriver, Scheduler, SchedulerDriver}
+import org.apache.mesos.v1.mesos._
+import org.apache.mesos.v1.scheduler.scheduler.Event.{Failure, Message, Offers, Subscribed}
 
 object HttpStreamingClient {
   def main(args: Array[String]): Unit = {
     val master = "zk://localhost:2181/mesos"
 
+    val eventHandler = new PrintingScheduler
 
-    val eventHandler = new PrintingEventHandler
-
-    val driver = new SchedulerDriver(eventHandler, FrameworkInfo("foo", "bar"), master)
+    val driver = new MesosSchedulerDriver(eventHandler, FrameworkInfo("foo", "bar"), master)
     driver.run()
   }
- }
+}
+
+class PrintingScheduler extends Scheduler {
+  var frameworkId: Option[FrameworkID] = None
+
+  def registered(schedulerDriver: SchedulerDriver, subscribed: Subscribed) = {
+    println(subscribed)
+    frameworkId = Some(subscribed.frameworkId)
+  }
+
+  def disconnected(schedulerDriver: SchedulerDriver): Unit = println("Disconnected from Mesos Master")
+
+  def failure(schedulerDriver: SchedulerDriver, failure: Failure): Unit = println(failure)
+
+  def statusUpdate(schedulerDriver: SchedulerDriver, status: TaskStatus): Unit = println(status)
+
+  def offerRescinded(schedulerDriver: SchedulerDriver, offerId: OfferID): Unit = println(offerId)
+
+  def error(schedulerDriver: SchedulerDriver, message: String): Unit = println(s"error $message")
+
+  def resourceOffers(schedulerDriver: SchedulerDriver, offers: Offers): Unit = {
+    println(offers)
+    schedulerDriver.declineOffer(offers.offers.map(_.id), None)
+  }
+
+  def frameworkMessage(schedulerDriver: SchedulerDriver, message: Message): Unit = println(message)
+
+  def executorLost(schedulerDriver: SchedulerDriver, executorID: ExecutorID, agentID: AgentID): Unit = {
+    println(s"executor Lost $executorID")
+  }
+
+  def reregistered(schedulerDriver: SchedulerDriver, subscribed: Subscribed): Unit = {
+    println(s"reregistered")
+  }
+
+  def agentLost(schedulerDriver: SchedulerDriver, agentID: AgentID): Unit = {
+    println(s"agent Lost $agentID")
+  }
+}
 ```
 
 2. Scheduler client connecting directly to a mesos master
@@ -76,12 +112,50 @@ object HttpStreamingClient {
   def main(args: Array[String]): Unit = {
     val master = "http://localhost:5050"
 
-    val eventHandler = new PrintingEventHandler
+    val eventHandler = new PrintingScheduler
 
-    val driver = new SchedulerDriver(eventHandler, FrameworkInfo("foo", "bar"), master)
+    val driver = new MesosSchedulerDriver(eventHandler, FrameworkInfo("foo", "bar"), master)
     driver.run()
   }
  }
+ 
+ class PrintingScheduler extends Scheduler {
+  var frameworkId: Option[FrameworkID] = None
+
+  def registered(schedulerDriver: SchedulerDriver, subscribed: Subscribed) = {
+    println(subscribed)
+    frameworkId = Some(subscribed.frameworkId)
+  }
+
+  def disconnected(schedulerDriver: SchedulerDriver): Unit = println("Disconnected from Mesos Master")
+
+  def failure(schedulerDriver: SchedulerDriver, failure: Failure): Unit = println(failure)
+
+  def statusUpdate(schedulerDriver: SchedulerDriver, status: TaskStatus): Unit = println(status)
+
+  def offerRescinded(schedulerDriver: SchedulerDriver, offerId: OfferID): Unit = println(offerId)
+
+  def error(schedulerDriver: SchedulerDriver, message: String): Unit = println(s"error $message")
+
+  def resourceOffers(schedulerDriver: SchedulerDriver, offers: Offers): Unit = {
+    println(offers)
+    schedulerDriver.declineOffer(offers.offers.map(_.id), None)
+  }
+
+  def frameworkMessage(schedulerDriver: SchedulerDriver, message: Message): Unit = println(message)
+
+  def executorLost(schedulerDriver: SchedulerDriver, executorID: ExecutorID, agentID: AgentID): Unit = {
+    println(s"executor Lost $executorID")
+  }
+
+  def reregistered(schedulerDriver: SchedulerDriver, subscribed: Subscribed): Unit = {
+    println(s"reregistered")
+  }
+
+  def agentLost(schedulerDriver: SchedulerDriver, agentID: AgentID): Unit = {
+    println(s"agent Lost $agentID")
+  }
+}
 ```
 
 ## Wishlist
