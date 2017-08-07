@@ -19,7 +19,7 @@ the current mesos master in the event of a master failover.
 Add the Sonatype.org Releases repo as a resolver in your `build.sbt` or `Build.scala` as appropriate.
 
 ```scala
-resolvers += "Sonatype.org Releases" at "https://oss.sonatype.org/content/repositories/releases/"
+resolvers += Resolver.bintrayRepo("treadstone90", "maven")
 ```
 
 Add **mesos-scala-client** as a dependency in your `build.sbt` or `Build.scala` as appropriate.
