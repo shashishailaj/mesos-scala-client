@@ -16,7 +16,7 @@ the current mesos master in the event of a master failover.
 
 ## Configuration
 
-Add the Sonatype.org Releases repo as a resolver in your `build.sbt` or `Build.scala` as appropriate.
+Add the bintray repo as a resolver in your `build.sbt` or `Build.scala` as appropriate.
 
 ```scala
 resolvers += Resolver.bintrayRepo("treadstone90", "maven")
